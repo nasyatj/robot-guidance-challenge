@@ -215,6 +215,30 @@ SPACE           EQU ' '              ; The 'space' character
 
 
 ; variable/data section
+;--------------------------------
+;motors
+FWD_INT         EQU 69 ; 3 second delay (at 23Hz)
+REV_INT         EQU 69 ; 3 second delay (at 23Hz)
+FWD_TRN_INT     EQU 46 ; 2 second delay (at 23Hz)
+REV_TRN_INT     EQU 46 ; 2 second delay (at 23Hz)
+
+;states (add more)
+START           EQU 0
+FWD             EQU 1
+REV             EQU 2
+ALL_STP         EQU 3
+INTERSECT       EQU 4
+ADJUST          EQU 5
+
+;E-F sensor variance
+RIGHT_SIDE      EQU ;**tolerance
+LEFT_SIDE       EQU ;**tolerance
+ADJUST_INT      EQU 13;**??
+
+;variance for intersection
+RIGHT           EQU ;**tolerance
+LEFT            EQU ;**tolerance
+STRAIGHT        EQU ;**tolerance          
 
                 ORG $3800
 ;---------------------------------------------------------------------------                
@@ -239,7 +263,21 @@ CLEAR_LINE      FCC '                    '
                 
 TEMP            RMB 1                ; Temporary location
 
-
+TOF_COUNTER   dc.b 0 ; The timer, incremented at 23Hz
+CRNT_STATE    dc.b 3 ; Current state register
+T_FWD         ds.b 1 ; FWD time
+T_REV         ds.b 1 ; REV time
+T_FWD_TRN     ds.b 1 ; FWD_TURN time
+T_REV_TRN     ds.b 1 ; REV_TURN time
+T_ADJ         ds.b 1 ; adjust time
+TEN_THOUS     ds.b 1 ; 10,000 digit
+THOUSANDS     ds.b 1 ; 1,000 digit
+HUNDREDS      ds.b 1 ; 100 digit
+TENS          ds.b 1 ; 10 digit
+UNITS         ds.b 1 ; 1 digit
+NO_BLANK      ds.b 1 ; Used in �leading zero� blanking by BCD2ASC
+BCD_SPARE     RMB 10
+ERROR         dc.b 0 ; indicates error
 
 ; code section
 
@@ -248,9 +286,7 @@ TEMP            RMB 1                ; Temporary location
 ;               Initialization
 
 Entry:
-_Startup:
-                BSET DDRA,%00000011
-                BSET DDRT,%00110000                       
+_Startup:                      
                 LDS #$4000           ; Initialize the stack pointer
                 CLI                  ; Enable interrupts
                 
@@ -258,11 +294,27 @@ _Startup:
                 JSR openADC          ; Initialize the ATD
                 JSR openLCD          ; Initialize the LCD
                 JSR CLR_LCD_BUF      ; Write 'space' characters to the LCD buffer
+                ;** 
+                LDX #msg1 ; Display msg1 
+                JSR putsLCD ; " 
+               
+                LDAA #$C0 ; Move LCD cursor to the 2nd row 
+                JSR cmd2LCD ; 
+                LDX #msg2 ; Display msg2 
+                JSR putsLCD ; "
+                             
+                JSR ENABLE_TOF ; Jump to TOF initialization
+                
+                BSET DDRA,%00000011 ; STAR_DIR, PORT_DIR 
+                BSET DDRT,%00110000 ; STAR_SPEED, PORT_SPEED
 
 ;---------------------------------------------------------------------------
 ;               Display Sensors
 
-MAIN            JSR G_LEDS_ON        ; Enable the guider LEDs
+MAIN            JSR UPDT_DISPL
+                LDAA CRNT_STATE      ;**
+                JSR DISPATCHER       ;**
+                JSR G_LEDS_ON        ; Enable the guider LEDs
                 JSR READ_SENSORS     ; Read the 5 guider sensors
                 JSR G_LEDS_OFF       ; Disable the guider LEDs
                 JSR DISPLAY_SENSORS  ; and write them to the LCD
@@ -270,9 +322,159 @@ MAIN            JSR G_LEDS_ON        ; Enable the guider LEDs
                 JSR del_50us         ;  display artifacts
                 BRA MAIN             ; Loop forever
 
+; data section
+;*******************************************************************
+msg1          dc.b "Battery volt ",0
+msg2          dc.b "State",0
+tab           dc.b "START  ",0
+              dc.b "FWD    ",0
+              dc.b "REV    ",0
+              dc.b "ALL_STP",0
+              dc.b "INTER  ",0
+              dc.b "REV_TRN",0
+              dc.b "ADJUST ",0
 
 
 ; subrotine section
+
+;*******************************************************************
+;*                 ---DISPATCHER---                                *
+;* calls the appropriate state handler based on the current state  *
+;* input: current state in ACCA                                    *
+;*******************************************************************
+DISPATCHER    CMPA #START       ; If it�s the START state 
+              BNE NOT_START 
+              JSR START_ST      ; then call START_ST routine 
+              BRA DISP_EXIT     ; and exit 
+
+NOT_START     CMPA #FWD         ;else if it's the FORWARD state
+              BNE NOT_FWD       ;
+              JSR FWD_ST        ;call the FORWARD routine
+              JMP DISP_EXIT     ;and exit
+              
+NOT_FWD       CMPA #REV         ;else if it's the reverse state
+              BNE NOT_REV
+              JSR REV_ST        ;then call the REVERSE routine
+              JMP DISP_EXIT     ;and exit
+              
+NOT_REV       CMPA #ALL_STP     ;else if it's the All STOP state
+              BNE NOT_ALL_STP
+              JSR ALL_STP_ST    ;call the ALL STOP routine
+              JMP DISP_EXIT     ;and exit
+              
+NOT_ALL_STP   CMPA #INTERSECT     ;else if it's the FORWARD TURN state           **CHANGE FWD ST TO INTERSECT ST
+              BNE NOT_INTERSECT
+              JSR INTERSECT_ST    ;call the FORWARD_TURN routine
+              JMP DISP_EXIT     ;and exit
+  
+NOT_INTERSECT CMPA #REV_TRN     ;else if it�s the REV_TRN state 
+              BNE NOT_REV_TRN 
+              JSR REV_TRN_ST    ;then call REV_TRN_ST routine 
+              BRA DISP_EXIT     ;and exit 
+ 
+NOT_REV_TRN   CMPA #ADJUST                                                        ;** ADD ADJUST ST
+              BNE NOT_ADJUST
+              JSR ADJUST_ST
+              BRA DISP_EXIT
+
+NOT_ADJUST    SWI ; Else the CRNT_ST is not defined, so stop 
+DISP_EXIT     RTS ; Exit from the state dispatcher
+
+;***********************************************************************
+;*  ---START STATE HANDLER---                                          *
+;*    advances state to the FORWARD state if forward bumper is pressed *
+;***********************************************************************
+START_ST      BRCLR PORTAD0,$04,NO_FWD    ;if /FWD_BUMP
+              JSR INIT_FWD                ;initialize the FORWARD state
+              MOVB  #FWD, CRNT_STATE         ;go to the forward state
+              BRA START_EXIT
+              
+NO_FWD        NOP ; Else
+START_EXIT    RTS ; return to the MAIN routine
+
+;*******************************************************************
+;*  ---FORWARD STATE HANDLER---                                    *
+;*    if forward bumper is pressed -> reverse                      *
+;*    if rear bumper is pressed -> stop                            *                **ADD LEFT ADJUST SECTION
+;*    if time > forward time -> forward turn                       *
+;*******************************************************************
+
+
+FWD_ST        BRSET PORTAD0, $04, NO_FWD_BUMP ;If FWD_BUMP then                
+              JSR INIT_REV    ;initialize the reverse routine                       
+              MOVB  #REV, CRNT_STATE  ;set the current state to reverse               
+              JMP FWD_EXIT    ;return                                                   
+                                                                                       
+NO_FWD_BUMP   BRSET PORTAD0, $08, NO_REAR_BUMP  ;If REAR_BUMP then we should stop       
+              JSR INIT_ALL_STP              ;so initialize the ALL_STOP state           
+              MOVB #ALL_STP, CRNT_STATE        ;and change state to ALL_STOP               
+              JMP FWD_EXIT                  ;return                                     
+                                                                                       
+NO_REAR_BUMP  LDAA  TOF_COUNTER             ;If Tc>Tfwd then                            
+              CMPA   T_FWD                   ;the robot should make a turn               
+              BNE   NO_FWD_TRN             ;so                                         
+              JSR   INIT_FWD_TRN            ;initialize the FWD_TRN state               
+              MOVB  #FWD_TRN, CRNT_STATE       ;go to that state                           
+              JMP   FWD_EXIT                                                            
+              
+NO_FWD_TRN    NOP ; Else
+FWD_EXIT      RTS ; return to the MAIN routine
+
+;*******************************************************************
+;*    ---REVERSE STATE HANDLER---                                  *
+;*******************************************************************
+REV_ST      LDAA TOF_COUNTER ; If Tc>Trev then
+            CMPA T_REV ; the robot should make a FWD turn
+            BNE NO_REV_TRN ; so
+            JSR INIT_REV_TRN ; initialize the REV_TRN state
+            MOVB #REV_TRN,CRNT_STATE ; set state to REV_TRN
+            BRA REV_EXIT ; and return
+NO_REV_TRN  NOP ; Else
+REV_EXIT    RTS ; return to the MAIN routine
+
+;*******************************************************************
+;*    ---All STOP STATE HANDLER---                                 *
+;*******************************************************************
+ALL_STP_ST  BRSET PORTAD0,$04,NO_START ; If FWD_BUMP
+            BCLR PTT,%00110000 ; initialize the START state (both motors off)
+            MOVB #START,CRNT_STATE ; set the state to START
+            BRA ALL_STP_EXIT ; and return
+NO_START    NOP ; Else
+ALL_STP_EXIT RTS ; return to the MAIN routine
+
+;*******************************************************************
+;*    ---FORWARD TURN STATE HANDLER---                             *             **DONT NEED?
+;*******************************************************************
+FWD_TRN_ST  LDAA TOF_COUNTER ; If Tc>Tfwdturn then
+            CMPA T_FWD_TRN ; the robot should go FWD
+            BNE NO_FWD_FT ; so
+            JSR INIT_FWD ; initialize the FWD state
+            MOVB #FWD,CRNT_STATE ; set state to FWD
+            BRA FWD_TRN_EXIT ; and return
+NO_FWD_FT   NOP ; Else
+FWD_TRN_EXIT RTS ; return to the MAIN routine
+
+;*******************************************************************
+;*    ---REVERSE TURN STATE HANDLER---                             *
+;*******************************************************************
+REV_TRN_ST  LDAA TOF_COUNTER ; If Tc>Trevturn then
+            CMPA T_REV_TRN ; the robot should go FWD
+            BNE NO_FWD_RT ; so
+            JSR INIT_FWD ; initialize the FWD state
+            MOVB #FWD,CRNT_STATE ; set state to FWD
+            BRA REV_TRN_EXIT ; and return
+NO_FWD_RT   NOP ; Else
+REV_TRN_EXIT RTS ; return to the MAIN routine
+
+;*******************************************************************
+;*    ---ADJUST STATE HANDLER---                                   *
+;*******************************************************************
+;...
+
+;*******************************************************************
+;*    ---INTERSECT STATE HANDLER---                                *
+;*******************************************************************
+;...
 
 ;***************************************************************
 ;* Motor Control - controls the eebot motor direction and speed
@@ -716,6 +918,63 @@ iloop           NOP                    ; (1 E-clk) No operation
                 DBNE  Y,eloop          ; (3 E-clk) If the outer cntr not 0, loop again
                 PULX                   ; (3 E-clk) Restore the X register
                 RTS                    ; (5 E-clk) Else return
+                
+;*******************************************************************
+           
+ENABLE_TOF    LDAA #%10000000
+              STAA TSCR1 ; Enable TCNT
+              STAA TFLG2 ; Clear TOF
+              LDAA #%10000100 ; Enable TOI and select prescale factor equal to 16
+              STAA TSCR2
+              RTS
+
+TOF_ISR       INC TOF_COUNTER
+              LDAA #%10000000; Clear the TOF flag
+              STAA TFLG2 ; TOF
+              RTI
+;*******************************************************************
+;* Update Display (Battery Voltage + Current State) *
+;*******************************************************************
+UPDT_DISPL    MOVB #$90,ATDCTL5 ; R-just., uns., sing. conv., mult., ch=0, start
+              BRCLR ATDSTAT0,$80,* ; Wait until the conver. seq. is complete
+              
+              LDAA ATDDR0L ; Load the ch0 result - battery volt - into A
+              
+              ; Display the battery voltage
+              MOVB      #$90,ATDCTL5    ;r.just., unsign., sing.conv., mult., ch0, start conv.
+              BRCLR     ATDSTAT0,$80,*  ;wait until the conversion sequence is complete
+              LDAA      ATDDR4L         ;read channel 4 result and store in AccA
+              LDAB      #39             ;AccB = 39
+              MUL                       ;AccD = 1st result x 39: convert raw ADC reading (scale factor based on hardware)
+              ADDD      #600            ;AccD = 1st result x 39 + 600:  account for offset or additional scale factor (from hardware used)
+              JSR       int2BCD
+              JSR       BCD2ASC
+              LDAA      #$8F            ;move LCD cursor to the 1st row, end of msg1, command is specific to microcontroller
+              JSR       cmd2LCD         ;"
+              LDAA      TEN_THOUS       ;output the TEN_THOUS ASCII character
+              JSR       putcLCD         ;"
+              ;same for THOUSANDS, �.�
+              LDAA      THOUSANDS
+              JSR       putcLCD
+              LDAA      #'.'
+              JSR       putcLCD
+              ; and HUNDREDS
+              LDAA      HUNDREDS
+              JSR       putcLCD
+              
+              ;-------------------------
+              LDAA #$C6 ; Move LCD cursor to the 2nd row, end of msg2
+              JSR cmd2LCD ;
+              
+              LDAB CRNT_STATE ; Display current state
+              LSLB ; "
+              LSLB ; "
+              LSLB ; "
+              LDX #tab ; "
+              ABX ; "
+              JSR putsLCD ; "
+              
+              RTS
 
 ;---------------------------------------------------------------------------
 ;               Interrupt Vectors
