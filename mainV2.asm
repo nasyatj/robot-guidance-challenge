@@ -359,7 +359,8 @@ DISP_EXIT       RTS                             ; Exit from the state dispatcher
 ;***********************************************************************
 ;*  ---START STATE HANDLER---                                          *
 ;*    advances state to the FORWARD state if forward bumper is pressed *
-;***********************************************************************START_ST        BRCLR PORTAD0,$04,NO_FWD        ; If /FWD_BUMP
+;***********************************************************************
+START_ST        BRCLR PORTAD0,$04,NO_FWD        ; If /FWD_BUMP
                 JSR   INIT_FWD                  ; Initialize the FORWARD state
                 MOVB  #FWD,CRNT_STATE           ; Go into the FORWARD state
                 BRA   START_EXIT
@@ -370,7 +371,7 @@ START_EXIT      RTS                             ; return to the MAIN routine
 ;*******************************************************************
 ;*  ---FORWARD STATE HANDLER---                                    *
 ;*    if forward bumper is pressed -> reverse                      *
-;*    if rear bumper is pressed -> stop                            *                **ADD LEFT ADJUST SECTION
+;*    if rear bumper is pressed -> stop                            *               
 ;*    if time > forward time -> forward turn                       *
 ;*******************************************************************
 FWD_ST          BRSET PORTAD0,$04,NO_FWD_BUMP   ; If FWD_BUMP then
@@ -446,21 +447,21 @@ PORTREV         LDAA PORTA
                 ORAA #%00000001
                 STAA PORTA
                 RTS
-********************************************************************************************
+;********************************************************************************************
 INIT_R_ADJUST   JSR STARFWD
                 JSR PORTREV
                 LDAA TOF_COUNTER
                 ADDA #ADJUST_INT
                 STAA T_ADJ
                 RTS
-********************************************************************************************
+;********************************************************************************************
 INIT_L_ADJUST   JSR PORTFWD
                 JSR STARREV
                 LDAA TOF_COUNTER
                 ADDA #ADJUST_INT
                 STAA T_ADJ 
                 RTS
-********************************************************************************************
+;********************************************************************************************
 ADJUST_ST       LDAA  TOF_COUNTER               ; If Tc>Tfwdturn then --------- Gets Stuck HERE (Counter not counting properly)
                 CMPA  T_ADJ                     ; the robot should go FWD
                 BLT   NO_ADJ                    ; so
@@ -471,7 +472,7 @@ ADJUST_ST       LDAA  TOF_COUNTER               ; If Tc>Tfwdturn then --------- 
 NO_ADJ          NOP                             ; Else
 ADJUST_EXIT     RTS                             ; return to the MAIN routine
                 
-********************************************************************************************
+;********************************************************************************************
 ; Turn Decisions - Right Straight - Use series idea to do 2 if one after the other 
 ;  (need to change a variable everytime the bumper is hit and restore it when it is on the correct path) (flag?)
 ;          |
@@ -489,7 +490,7 @@ AT_JNCT_ST      LDAA ERROR
 
 
 AT_JNCT_EXIT    RTS 
-********************************************************************************************
+;********************************************************************************************
            tab: dc.b  "START  ",0
                 dc.b  "FWD    ",0
                 dc.b  "REV    ",0
@@ -497,7 +498,7 @@ AT_JNCT_EXIT    RTS
                 dc.b  "AT_JNCT",0
                 dc.b  "REV_TRN",0
                 dc.b  "ADJUST",0                 
-********************************************************************************************
+;********************************************************************************************
 REV_ST          LDAA  TOF_COUNTER               ; If Tc>Trev then
                 CMPA  T_REV                     ; the robot should make a FWD turn
                 BLT   NO_REV_TRN                ; so
@@ -507,7 +508,7 @@ REV_ST          LDAA  TOF_COUNTER               ; If Tc>Trev then
 NO_REV_TRN      NOP                             ; Else
 REV_EXIT        RTS                             ; return to the MAIN routine
 
-********************************************************************************************
+;********************************************************************************************
 ALL_STP_ST      BRSET PORTAD0,$04,NO_START      ; If FWD_BUMP
                 BCLR  PTT,%00110000             ; initialize the START state (both motors off)
                 MOVB  #START,CRNT_STATE         ; set the state to START
@@ -515,7 +516,7 @@ ALL_STP_ST      BRSET PORTAD0,$04,NO_START      ; If FWD_BUMP
 NO_START        NOP                             ; Else
 ALL_STP_EXIT    RTS                             ; return to the MAIN routine
 
-********************************************************************************************
+;********************************************************************************************
 FWD_TRN_ST      LDAA  TOF_COUNTER               ; If Tc>Tfwdturn then
                 CMPA  T_FWD_TRN                 ; the robot should go FWD
                 BNE   NO_FWD_FT                 ; so
@@ -525,7 +526,7 @@ FWD_TRN_ST      LDAA  TOF_COUNTER               ; If Tc>Tfwdturn then
 NO_FWD_FT       NOP                             ; Else
 FWD_TRN_EXIT    RTS                             ; return to the MAIN routine
 
-********************************************************************************************
+;********************************************************************************************
 REV_TRN_ST      LDAA  TOF_COUNTER               ; If Tc>Trevturn then
                 CMPA  T_REV_TRN                 ; the robot should go FWD
                 BLT   NO_FWD_RT                 ; so
@@ -535,7 +536,7 @@ REV_TRN_ST      LDAA  TOF_COUNTER               ; If Tc>Trevturn then
 NO_FWD_RT       NOP                             ; Else
 REV_TRN_EXIT    RTS                             ; return to the MAIN routine
 
-********************************************************************************************
+;********************************************************************************************
 INIT_FWD        BCLR  PORTA,%00000011           ; Set FWD direction for both motors
                 BSET  PTT,%00110000             ; Turn on the drive motors
                 LDAA  TOF_COUNTER               ; Mark the fwd time Tfwd
@@ -543,7 +544,7 @@ INIT_FWD        BCLR  PORTA,%00000011           ; Set FWD direction for both mot
                 STAA  T_FWD
                 RTS
 
-********************************************************************************************
+;********************************************************************************************
 INIT_REV        BSET  PORTA,%00000011           ; Set REV direction for both motors
                 BSET  PTT,%00110000             ; Turn on the drive motors
                 LDAA  TOF_COUNTER               ; Mark the fwd time Tfwd
@@ -551,18 +552,18 @@ INIT_REV        BSET  PORTA,%00000011           ; Set REV direction for both mot
                 STAA  T_REV
                 RTS
 
-********************************************************************************************
+;********************************************************************************************
 INIT_ALL_STP    BCLR  PTT,%00110000             ; Turn off the drive motors
                 RTS
 
-********************************************************************************************
+;********************************************************************************************
 INIT_FWD_TRN    BSET  PORTA,%00000010           ; Set REV dir. for STARBOARD (right) motor
                 LDAA  TOF_COUNTER               ; Mark the fwd_turn time Tfwdturn
                 ADDA  #FWD_TRN_INT
                 STAA  T_FWD_TRN
                 RTS
 
-********************************************************************************************
+;********************************************************************************************
 INIT_REV_TRN    BCLR  PORTA,%00000010           ; Set FWD dir. for STARBOARD (right) motor
                 LDAA  TOF_COUNTER               ; Mark the fwd time Tfwd
                 ADDA  #REV_TRN_INT
@@ -570,7 +571,7 @@ INIT_REV_TRN    BCLR  PORTA,%00000010           ; Set FWD dir. for STARBOARD (ri
                 RTS
 
 
-************************************************************
+;************************************************************
 ENABLE_TOF  LDAA #%10000000
             STAA TSCR1      ; Enable TCNT
             STAA TFLG2      ; Clear TOF
@@ -578,7 +579,7 @@ ENABLE_TOF  LDAA #%10000000
             STAA TSCR2
             RTS
 
-************************************************************
+;************************************************************
 TOF_ISR     INC TOF_COUNTER
             LDAA #%10000000 ; Clear
             STAA TFLG2      ; TOF
