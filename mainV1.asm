@@ -496,8 +496,45 @@ NO_ADJ          NOP                             ; Else
 ADJUST_EXIT     RTS           
 
 ;*******************************************************************
-;*    ---INTERSECT STATE HANDLER--- (varify)                                *
+;*    ---INTERSECT STATE HANDLER--- (varify)                       *
 ;*******************************************************************
+;********************************************************************************************
+; Turn Decisions - Right Straight - Use series idea to do 2 if one after the other 
+;  (need to change a variable everytime the bumper is hit and restore it when it is on the correct path) (flag?)
+;          |
+; Cases (--|): (LR, LS, SR)
+;          |
+; When ERROR = 1 error was made, when 0 no error was made (Need to reset ERROR)
+; Direction Defaults -> (S->R->L)
+
+INTERSECT_ST    LDAA ERROR
+                CMPA #1
+                BNE  INTERSECT_EXIT
+                LDAA SENSOR_BOW
+                
+                JMP  INTERSECT_EXIT 
+
+
+INTERSECT_EXIT    RTS 
+;********************************************************************************************
+INIT_FWD        BCLR  PORTA,%00000011           ; Set FWD direction for both motors
+                BSET  PTT,%00110000             ; Turn on the drive motors
+                LDAA  TOF_COUNTER               ; Mark the fwd time Tfwd
+                ADDA  #FWD_INT
+                STAA  T_FWD
+                RTS
+
+;********************************************************************************************
+INIT_REV        BSET  PORTA,%00000011           ; Set REV direction for both motors
+                BSET  PTT,%00110000             ; Turn on the drive motors
+                LDAA  TOF_COUNTER               ; Mark the fwd time Tfwd
+                ADDA  #REV_INT
+                STAA  T_REV
+                RTS
+
+;********************************************************************************************
+INIT_ALL_STP    BCLR  PTT,%00110000             ; Turn off the drive motors
+                RTS
 ;********************************************************************************************
 INIT_FWD_TRN    BSET  PORTA,%00000010           ; Set REV dir. for STARBOARD (right) motor
                 LDAA  TOF_COUNTER               ; Mark the fwd_turn time Tfwdturn
