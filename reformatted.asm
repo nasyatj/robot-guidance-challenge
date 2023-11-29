@@ -1,3 +1,7 @@
+; -------------------------------------------------------------------------------------------------
+;   Nasya James  -  501014179
+;   Alaa Yafaoui -  501052383
+; -------------------------------------------------------------------------------------------------
               XDEF Entry, _Startup ; export �Entry� symbol
               ABSENTRY Entry ; for absolute assembly: mark
               INCLUDE "derivative.inc"
@@ -179,12 +183,12 @@ NOT_RIGHT_TURN    CMPA  #REV_TURN                             ;  if the robot is
                   
 NOT_REV_TURN      CMPA  #LEFT_ALIGN                           ;  if the robot is in the 
                   BNE   NOT_LEFT_ALIGN                        ; LEFT_ALIGN state, else proceed to 
-                  JSR   LEFT_ALIGN_EXIT                       ; 
+                  JSR   CONTINUE_FORWARD                      ; 
                   BRA DISP_EXIT                               ; RIGHT_ALIGN state
 
 NOT_LEFT_ALIGN    CMPA  #RIGHT_ALIGN                          ;  if the robot is in the 
                   BNE   NOT_RIGHT_ALIGN                       ; RIGHT_ALIGN state, else proceed to
-                  JSR   RIGHT_ALIGN_EXIT                      ;  
+                  JSR   CONTINUE_FORWARD                      ;  
                   BRA DISP_EXIT                               ; INVALID state
                       
 NOT_RIGHT_ALIGN   SWI                                         ; Break
@@ -299,10 +303,13 @@ EXIT              RTS                                                           
 FULL_LEFT         LDAA    SENSOR_BOW                                                              ;|
                   ADDA    VAR_BOW                                                                 ;|
                   CMPA    BASE_BOW                                                                ;|
-                  BPL     LEFT_ALIGN_EXIT                                                         ;|
+                  BPL     CONTINUE_FORWARD                                                        ;|
                   BMI     EXIT  
-                                                                                    ;|                                                                                    
-LEFT_ALIGN_EXIT   MOVB    #FWD, CRNT_STATE                                                        ;|
+
+; -------------------------------------------------------------------------------------------------
+;  continue moving forward after turning                                                                         
+; -------------------------------------------------------------------------------------------------                                                                                    ;|                                                                                    
+CONTINUE_FORWARD  MOVB    #FWD, CRNT_STATE                                                        ;|
                   JSR     INIT_FWD                                                                ;|
                   BRA     EXIT                                                                    ;|
 ; -------------------------------------------------------------------------------------------------
@@ -314,12 +321,8 @@ LEFT_ALIGN_EXIT   MOVB    #FWD, CRNT_STATE                                      
 FULL_RIGHT        LDAA    SENSOR_BOW                                                              ;|
                   ADDA    VAR_BOW                                                                 ;|
                   CMPA    BASE_BOW                                                                ;|
-                  BPL     RIGHT_ALIGN_EXIT                                                        ;|
-                  BMI     EXIT   
-                                                                                   ;|
-RIGHT_ALIGN_EXIT  MOVB    #FWD, CRNT_STATE                                                        ;|
-                  JSR     INIT_FWD                                                                ;|
-                  BRA     EXIT                                                                    ;|
+                  BPL     CONTINUE_FORWARD                                                        ;|
+                  BMI     EXIT                                                                      ;|
 ; -------------------------------------------------------------------------------------------------
 
 
